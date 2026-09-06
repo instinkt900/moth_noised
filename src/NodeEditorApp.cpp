@@ -8,6 +8,10 @@
 #include <Magnum/GL/DefaultFramebuffer.h>
 #include <Magnum/GL/Renderer.h>
 
+#ifndef __EMSCRIPTEN__
+#include <GLFW/glfw3.h>
+#endif
+
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #else
@@ -57,6 +61,45 @@ static void* fnEditorIpcSetup( bool )
 {
     return nullptr;
 }
+#else
+/// The scaling the desktop actually asked for.
+///
+/// GLFW reports Xft.dpi on X11, the compositor's scale on Wayland and the
+/// monitor scale on Windows, and reports 1 where the desktop says nothing.
+/// Magnum instead falls back to deriving a scale from the monitor's physical
+/// size when it cannot read Xft.dpi — a value its own source calls "usually
+/// very-off", and which on an unscaled 1080p laptop panel comes out at 1.47 and
+/// renders the whole UI at two thirds of the window's resolution.
+///
+/// This is passed as the app-defined scaling, which --magnum-dpi-scaling still
+/// overrides, so asking for "physical" or an explicit number keeps working.
+static Vector2 DesktopDpiScaling()
+{
+    // Magnum initialises GLFW itself later; glfwInit is documented to return
+    // immediately if the library is already initialised, so doing it early to
+    // ask one question is harmless either way.
+    if( !glfwInit() )
+    {
+        return Vector2 { 1.0f };
+    }
+
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    if( !monitor )
+    {
+        return Vector2 { 1.0f };
+    }
+
+    Vector2 scaling { 1.0f };
+    glfwGetMonitorContentScale( monitor, &scaling.x(), &scaling.y() );
+
+    // A monitor that reports nothing usable is the same as one asking for 1.
+    if( !( scaling.x() > 0.0f ) || !( scaling.y() > 0.0f ) )
+    {
+        return Vector2 { 1.0f };
+    }
+
+    return scaling;
+}
 #endif
 
 NodeEditorApp::NodeEditorApp( const Arguments& arguments ) :
@@ -66,7 +109,7 @@ NodeEditorApp::NodeEditorApp( const Arguments& arguments ) :
 #ifdef __EMSCRIPTEN__
         .setWindowFlags( Configuration::WindowFlag::Resizable )
 #else
-        .setSize( Vector2i( 1280, 720 ) )
+        .setSize( Vector2i( 1280, 720 ), DesktopDpiScaling() )
         .setWindowFlags( Configuration::WindowFlag::Resizable | ( IsDetached( arguments ) ? (Configuration::WindowFlag)0 : Configuration::WindowFlag::Maximized ) ),
         GLConfiguration{}
         .setSampleCount( 4 )
