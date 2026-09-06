@@ -1,3 +1,12 @@
+# ---------------------------------------------------------------------------
+# The UI stack, fetched by CPM.
+#
+# This block is upstream FastNoise2's, kept close to verbatim: the pins are
+# load-bearing (imnodes is a fork carried by commit, Magnum and Corrade must
+# agree with each other) and there is nothing to gain from re-deriving them.
+# What is not here is FastNoise2 itself — the root CMakeLists takes that from
+# Conan so the editor and the engine share one build of it.
+# ---------------------------------------------------------------------------
 CPMAddPackage(
     NAME corrade
     GITHUB_REPOSITORY mosra/corrade
@@ -13,11 +22,11 @@ CPMAddPackage(
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-    set(NODE_EDITOR_APP_TYPE_CAPS "EMSCRIPTEN")   
-    set(NODE_EDITOR_APP_TYPE "Emscripten")   
+    set(NODE_EDITOR_APP_TYPE_CAPS "EMSCRIPTEN")
+    set(NODE_EDITOR_APP_TYPE "Emscripten")
 else()
-    set(NODE_EDITOR_APP_TYPE_CAPS "GLFW")   
-    set(NODE_EDITOR_APP_TYPE "Glfw")   
+    set(NODE_EDITOR_APP_TYPE_CAPS "GLFW")
+    set(NODE_EDITOR_APP_TYPE "Glfw")
 
     CPMAddPackage(
         NAME GLFW
@@ -50,7 +59,7 @@ CPMAddPackage(
         "MAGNUM_WITH_TEXTURETOOLS OFF"
         "MAGNUM_TARGET_GLES2 OFF"
 )
-    
+
 CPMAddPackage(
     NAME imgui
     GITHUB_REPOSITORY ocornut/imgui
@@ -58,12 +67,10 @@ CPMAddPackage(
     EXCLUDE_FROM_ALL YES
     DOWNLOAD_ONLY YES
 )
-# Set dir for find_package(ImGui)
+# Where find_package(ImGui) looks.
 set(IMGUI_DIR ${imgui_SOURCE_DIR})
 
-# Setup freetype for imgui font rendering
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-    # For non-Emscripten builds, fetch and build freetype from source
     CPMAddPackage(
         NAME freetype
         GIT_REPOSITORY https://gitlab.freedesktop.org/freetype/freetype.git
@@ -95,33 +102,29 @@ CPMAddPackage(
         "MAGNUM_WITH_IMGUIINTEGRATION ON"
 )
 
-# Use modules from magnum-integration since it has everything we need
+# magnum-integration ships find modules for Magnum and ImGui both.
 set(CMAKE_MODULE_PATH "${magnum-integration_SOURCE_DIR}/modules" ${CMAKE_MODULE_PATH})
 
 find_package(Magnum REQUIRED GL ${NODE_EDITOR_APP_TYPE}Application)
 find_package(MagnumIntegration REQUIRED ImGui)
 find_package(ImGui REQUIRED SourcesMiscCpp)
 
-# Enable freetype for imgui font rendering.
-# IMGUI_ENABLE_FREETYPE must be visible to all targets that compile imgui sources,
-# so we add it as PUBLIC on MagnumImGuiIntegration (the real target behind MagnumIntegration::ImGui).
+# IMGUI_ENABLE_FREETYPE has to reach every target that compiles an ImGui
+# source, so it goes PUBLIC on the target that actually owns those sources.
 target_compile_definitions(MagnumImGuiIntegration PUBLIC IMGUI_ENABLE_FREETYPE)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-    # For Emscripten, use the freetype port
     target_compile_options(MagnumImGuiIntegration PUBLIC -sUSE_FREETYPE=1)
     target_link_options(MagnumImGuiIntegration PUBLIC -sUSE_FREETYPE=1)
 else()
-    # For other platforms, link the freetype library we built
     cmake_policy(SET CMP0079 NEW)
     target_link_libraries(MagnumImGuiIntegration PUBLIC freetype)
 endif()
 
-# Setup imgui freetype sources
 set(IMGUI_FREETYPE_SOURCE "${imgui_SOURCE_DIR}/misc/freetype/imgui_freetype.cpp")
 set_property(SOURCE ${IMGUI_FREETYPE_SOURCE} APPEND PROPERTY COMPILE_DEFINITIONS
     "IMGUI_USER_CONFIG=\"Magnum/ImGuiIntegration/visibility.h\"")
-  
+
 CPMAddPackage(
     NAME imnodes
     GITHUB_REPOSITORY Auburn/imnodes
@@ -132,31 +135,37 @@ CPMAddPackage(
         "BUILD_SHARED_LIBS OFF"
         "IMNODES_IMGUI_TARGET_NAME MagnumIntegration::ImGui"
 )
-  
+
 CPMAddPackage(
     NAME robinhoodhashing
     GITHUB_REPOSITORY martinus/robin-hood-hashing
-    GIT_TAG 3.11.5    
+    GIT_TAG 3.11.5
     EXCLUDE_FROM_ALL YES
 )
 
-# Bundle a better font
-# Configure resource file for imgui source dir variable
+# ---------------------------------------------------------------------------
+# The editor
+# ---------------------------------------------------------------------------
+
+# The font is pulled out of the ImGui checkout, so the resource manifest has to
+# be configured rather than used as-is.
 set(NodeEditor_RESOURCES_DIR "${CMAKE_CURRENT_LIST_DIR}/resources")
 configure_file("resources/resources.conf" "${CMAKE_CURRENT_BINARY_DIR}/resources.conf")
 corrade_add_resource(NodeEditor_RESOURCES "${CMAKE_CURRENT_BINARY_DIR}/resources.conf")
 
-add_executable(NodeEditor
-    "NodeEditorApp.cpp"
-    "FastNoiseNodeEditor.cpp"
-    "MeshNoisePreview.cpp"
-    "NoiseTexture.cpp"
+add_executable(moth_noised
+    NodeEditorApp.cpp
+    FastNoiseNodeEditor.cpp
+    MeshNoisePreview.cpp
+    NoiseTexture.cpp
     ${IMGUI_FREETYPE_SOURCE}
     ${NodeEditor_RESOURCES}
-) 
+)
 
-target_link_libraries(NodeEditor PRIVATE
-    FastNoise
+target_link_libraries(moth_noised PRIVATE
+    moth::noise
+    FastNoise2::FastNoise
+    moth_noised_ipc
     Magnum::Application
     Magnum::Shaders
     Magnum::SceneGraph
@@ -166,58 +175,54 @@ target_link_libraries(NodeEditor PRIVATE
     robin_hood
 )
 
-# Link NodeEditorIpc on non-Emscripten platforms
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-    target_link_libraries(NodeEditor PRIVATE NodeEditorIpc)
-endif()
+# Upstream's FastNoise target defines this PUBLIC from the FastNoise2 project
+# version, and the About box prints it. The packaged library carries no such
+# definition, so supply it here from what find_package reported.
+target_compile_definitions(moth_noised PRIVATE FASTNOISE2_VERSION="${FastNoise2_VERSION}")
 
-target_compile_features(NodeEditor PRIVATE cxx_std_20)
+# Directly, rather than via CMAKE_CXX_STANDARD: imnodes sets that variable to 11
+# in its own CMakeLists, which lands on every target configured after it.
+target_compile_features(moth_noised PRIVATE cxx_std_20)
 
-# Windows HiDPI support
 if(CORRADE_TARGET_WINDOWS)
-    target_sources(NodeEditor PRIVATE resources/WindowsHiDPI.manifest)
+    target_sources(moth_noised PRIVATE resources/WindowsHiDPI.manifest)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     set(CMAKE_EXECUTABLE_SUFFIX ".html")
-    target_compile_options(NodeEditor PRIVATE -pthread -msimd128)
-    target_link_options(NodeEditor PRIVATE 
+    target_compile_options(moth_noised PRIVATE -pthread -msimd128)
+    target_link_options(moth_noised PRIVATE
         "-sPTHREAD_POOL_SIZE=Math.max(2,navigator.hardwareConcurrency)+3-navigator.hardwareConcurrency/4"
         -pthread -sALLOW_MEMORY_GROWTH=1 -lidbfs.js -s FORCE_FILESYSTEM
         --shell-file "${CMAKE_CURRENT_LIST_DIR}/resources/emscripten_shell.html"
         --pre-js "${CMAKE_CURRENT_LIST_DIR}/resources/emscripten_pre.js"
         -Wl,-u,_emscripten_run_callback_on_thread
     )
-    add_custom_command(TARGET NodeEditor POST_BUILD
+    add_custom_command(TARGET moth_noised POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_LIST_DIR}/resources/emscripten_enable_shared_array_buffer.js"
-        $<TARGET_FILE_DIR:NodeEditor>
+        $<TARGET_FILE_DIR:moth_noised>
     )
-    # Install Emscripten-generated companion files
-    install(FILES 
-        $<TARGET_FILE_DIR:NodeEditor>/NodeEditor.js
-        $<TARGET_FILE_DIR:NodeEditor>/NodeEditor.wasm
+    install(FILES
+        $<TARGET_FILE_DIR:moth_noised>/moth_noised.js
+        $<TARGET_FILE_DIR:moth_noised>/moth_noised.wasm
         "${CMAKE_CURRENT_LIST_DIR}/resources/emscripten_enable_shared_array_buffer.js"
         DESTINATION "${CMAKE_INSTALL_BINDIR}"
     )
-
-elseif (UNIX)
-    target_link_options(NodeEditor PRIVATE -pthread)
+elseif(UNIX)
+    target_link_options(moth_noised PRIVATE -pthread)
 
     if(APPLE)
-        set_property(TARGET NodeEditor PROPERTY
-            INSTALL_RPATH "@loader_path/../lib")
+        set_property(TARGET moth_noised PROPERTY INSTALL_RPATH "@loader_path/../lib")
     else()
-        set_property(TARGET NodeEditor PROPERTY
-            INSTALL_RPATH "\$ORIGIN/../lib")
+        set_property(TARGET moth_noised PROPERTY INSTALL_RPATH "\$ORIGIN/../lib")
     endif()
 endif()
 
-if (MSVC)
-    target_compile_definitions(NodeEditor PRIVATE _CRT_SECURE_NO_WARNINGS=1)
+if(MSVC)
+    target_compile_definitions(moth_noised PRIVATE _CRT_SECURE_NO_WARNINGS=1)
 endif()
 
-set(install_targets ${install_targets} NodeEditor PARENT_SCOPE)
+install(TARGETS moth_noised RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 
-# Make the executable a default target to build & run in Visual Studio
-set_property(DIRECTORY ../.. PROPERTY VS_STARTUP_PROJECT .)
+set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" PROPERTY VS_STARTUP_PROJECT moth_noised)

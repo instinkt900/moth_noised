@@ -1,35 +1,34 @@
-# NodeEditorIpc - Shared memory IPC library for FastNoise2 Node Editor
+# The shared-memory channel a running game uses to read the node tree the
+# editor currently has selected. Vendored from FastNoise2 v1.1.1.
+#
+# Upstream built this against the FastNoise2 source tree; here it takes the
+# one header it needs (FastNoise/Utility/Export.h) from the installed package.
 
-add_library(NodeEditorIpc
-    "NodeEditorIpc_C.cpp"
-    "include/FastNoise/NodeEditorIpc_C.h"
+add_library(moth_noised_ipc STATIC
+    NodeEditorIpc_C.cpp
+    include/FastNoise/NodeEditorIpc_C.h
 )
 
-target_include_directories(NodeEditorIpc PUBLIC
-    $<BUILD_INTERFACE:${FastNoise2_SOURCE_DIR}/include>
+target_include_directories(moth_noised_ipc PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
-if(NOT BUILD_SHARED_LIBS)
-    target_compile_definitions(NodeEditorIpc PRIVATE FASTNOISE_STATIC_LIB)
-endif()
+# For FastNoise/Utility/Export.h only — no FastNoise symbols are referenced,
+# so this is a header dependency rather than a link one.
+target_link_libraries(moth_noised_ipc PUBLIC FastNoise2::FastNoise)
 
-set_target_properties(NodeEditorIpc PROPERTIES
-    DEBUG_POSTFIX D
-    COMPILE_PDB_NAME_DEBUG NodeEditorIpcD
-)
+# FastNoise2 is packaged static, so the export header must not decorate its
+# declarations with dllimport.
+target_compile_definitions(moth_noised_ipc PRIVATE FASTNOISE_STATIC_LIB)
 
-# Link rt library on Linux (required for shm_open)
+# shm_open lives in librt on older glibc.
 if(UNIX AND NOT APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-    target_link_libraries(NodeEditorIpc PRIVATE rt)
+    target_link_libraries(moth_noised_ipc PRIVATE rt)
 endif()
 
-# Install headers
 install(
-    DIRECTORY "include/FastNoise"
+    DIRECTORY include/FastNoise
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     FILES_MATCHING PATTERN "*.h"
 )
-
-set(install_targets ${install_targets} NodeEditorIpc PARENT_SCOPE)
