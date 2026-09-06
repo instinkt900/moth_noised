@@ -4,6 +4,7 @@
 #include <imgui.h>
 #include <Corrade/Utility/Resource.h>
 #include <Magnum/ImGuiIntegration/Context.hpp>
+#include <Magnum/Math/Functions.h>
 #include <Magnum/Math/Matrix4.h>
 #include <Magnum/GL/DefaultFramebuffer.h>
 #include <Magnum/GL/Renderer.h>
@@ -73,11 +74,11 @@ static void* fnEditorIpcSetup( bool )
 ///
 /// This is passed as the app-defined scaling, which --magnum-dpi-scaling still
 /// overrides, so asking for "physical" or an explicit number keeps working.
-static Vector2 DesktopDpiScaling()
+static Vector2 QueryDesktopDpiScaling()
 {
     // Magnum initialises GLFW itself later; glfwInit is documented to return
     // immediately if the library is already initialised, so doing it early to
-    // ask one question is harmless either way.
+    // ask a couple of questions is harmless either way.
     if( !glfwInit() )
     {
         return Vector2 { 1.0f };
@@ -100,6 +101,58 @@ static Vector2 DesktopDpiScaling()
 
     return scaling;
 }
+
+static Vector2 DesktopDpiScaling()
+{
+    // Asked once: the window size below needs the same answer, and the two
+    // disagreeing would size the window against a scale it was not given.
+    static const Vector2 scaling = QueryDesktopDpiScaling();
+    return scaling;
+}
+
+/// A starting window size proportionate to the screen it opens on.
+///
+/// Upstream hard-codes 1280x720. That number was doing less than it looks
+/// because Magnum multiplies the configured size by the DPI scaling, so on a
+/// desktop where Magnum guessed 1.47 the window actually came out near 1882x1058
+/// — and now that the scaling is reported honestly, 1280x720 is what you would
+/// get. It is also the size of the detached graph window, which does not open
+/// maximized, and it is the size the main window returns to when un-maximized.
+///
+/// Three quarters of the monitor's work area keeps the window clear of panels
+/// and docks at a size that suits the screen rather than the author's monitor.
+static Vector2i DefaultWindowSize()
+{
+    constexpr Vector2i fallback { 1280, 720 };
+
+    if( !glfwInit() )
+    {
+        return fallback;
+    }
+
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    if( !monitor )
+    {
+        return fallback;
+    }
+
+    Vector2i position, workArea;
+    glfwGetMonitorWorkarea( monitor, &position.x(), &position.y(), &workArea.x(), &workArea.y() );
+
+    if( workArea.x() <= 0 || workArea.y() <= 0 )
+    {
+        return fallback;
+    }
+
+    // The work area is in pixels and Magnum multiplies what it is given by the
+    // DPI scaling, so hand it logical units or a scaled desktop gets a window
+    // scaled twice.
+    const Vector2 logical = Vector2 { workArea } * 0.75f / DesktopDpiScaling();
+
+    // Nothing smaller than this is usable for a node graph; on a screen too
+    // small to grant it the window manager will clamp it back down anyway.
+    return Vector2i { Math::max( logical, Vector2 { 640.0f, 480.0f } ) };
+}
 #endif
 
 NodeEditorApp::NodeEditorApp( const Arguments& arguments ) :
@@ -109,7 +162,7 @@ NodeEditorApp::NodeEditorApp( const Arguments& arguments ) :
 #ifdef __EMSCRIPTEN__
         .setWindowFlags( Configuration::WindowFlag::Resizable )
 #else
-        .setSize( Vector2i( 1280, 720 ), DesktopDpiScaling() )
+        .setSize( DefaultWindowSize(), DesktopDpiScaling() )
         .setWindowFlags( Configuration::WindowFlag::Resizable | ( IsDetached( arguments ) ? (Configuration::WindowFlag)0 : Configuration::WindowFlag::Maximized ) ),
         GLConfiguration{}
         .setSampleCount( 4 )
