@@ -1,6 +1,8 @@
 #include <sstream>
 #include <random>
 #include <cstdio>
+#include <algorithm>
+#include <optional>
 
 #if !defined( WIN32 ) && !defined( __EMSCRIPTEN__ )
 #include <unistd.h>  // For getppid(), pid_t
@@ -22,6 +24,8 @@
 #include "NodeEditorApp.h"
 
 #ifndef __EMSCRIPTEN__
+#include <nfd.h>
+
 #include "FastNoise/NodeEditorIpc_C.h"
 #endif
 
@@ -768,6 +772,8 @@ void FastNoiseNodeEditor::Draw( const Matrix4& transformation, const Matrix4& pr
         // Menu bar for preview settings
         if( ImGui::BeginMenuBar() )
         {
+            DoFileMenu();
+
             if( ImGui::BeginMenu( "Preview Settings" ) )
             {
                 bool edited = false;
@@ -846,6 +852,26 @@ void FastNoiseNodeEditor::Draw( const Matrix4& transformation, const Matrix4& pr
                 
                 ImGui::EndMenu();
             }
+
+            // Which project is open, and how the last file operation went.
+            // Without this the only feedback a save gives is the console.
+            if( !mProjectPath.empty() || !mProjectStatus.empty() )
+            {
+                ImGui::Separator();
+                ImGui::TextUnformatted( mProjectPath.empty() ? "<unsaved>" : mProjectPath.filename().string().c_str() );
+
+                if( !mProjectStatus.empty() && ImGui::IsItemHovered() )
+                {
+                    ImGui::BeginTooltip();
+                    if( !mProjectPath.empty() )
+                    {
+                        ImGui::TextUnformatted( mProjectPath.string().c_str() );
+                    }
+                    ImGui::TextUnformatted( mProjectStatus.c_str() );
+                    ImGui::EndTooltip();
+                }
+            }
+
             ImGui::EndMenuBar();
         }
 
@@ -1628,3 +1654,303 @@ void FastNoiseNodeEditor::SetPreviewGenerator( std::string_view encodedNodeTree 
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// Project files
+// ---------------------------------------------------------------------------
+
+std::vector<FastNoise::NodeData*> FastNoiseNodeEditor::FindRootNodes()
+{
+    // A root is a node nothing else feeds off — the same rule the ini writer
+    // uses to decide what to walk. The canvas normally holds several.
+    std::vector<FastNoise::NodeData*> roots;
+
+    for( auto& node : mNodes )
+    {
+        bool referenced = false;
+
+        for( auto& other : mNodes )
+        {
+            auto links = other.second.GetNodeIDLinks();
+            if( std::find( links.begin(), links.end(), node.first ) != links.end() )
+            {
+                referenced = true;
+                break;
+            }
+        }
+
+        if( !referenced )
+        {
+            roots.push_back( node.first );
+        }
+    }
+
+    // mNodes is unordered, so without this the tree order in the file would
+    // shuffle between saves and every diff would be noise.
+    std::sort( roots.begin(), roots.end(), [this]( FastNoise::NodeData* l, FastNoise::NodeData* r ) {
+        return mNodes.at( l ).nodeId < mNodes.at( r ).nodeId;
+    } );
+
+    return roots;
+}
+
+moth_noised::Project FastNoiseNodeEditor::BuildProject()
+{
+    moth_noised::Project project;
+
+    project.preview.seed = mNodeSeed;
+    project.preview.scale = mNodeScale;
+    project.preview.genType = static_cast<int>( mNodeGenType );
+
+    for( FastNoise::NodeData* root : FindRootNodes() )
+    {
+        // CopyFrom leaves the canvas alone and reports which of our nodes
+        // became which node of the tree, which is how a position finds its way
+        // to the right entry.
+        std::vector<FastNoise::NodeData*> sources;
+        moth_noised::ProjectTree entry;
+        entry.tree = moth::noise::NodeTree::CopyFrom( root, &sources );
+
+        entry.layout.reserve( sources.size() );
+        for( FastNoise::NodeData* source : sources )
+        {
+            const ImVec2 position = ImNodes::GetNodeGridSpacePos( mNodes.at( source ).nodeId );
+            entry.layout.push_back( { position.x, position.y } );
+        }
+
+        // The output is the graph the preview is showing. A selection part way
+        // down a graph still saves that whole graph: which node is previewed is
+        // transient, the graph is the asset.
+        if( mSelectedNode && std::find( sources.begin(), sources.end(), mSelectedNode ) != sources.end() )
+        {
+            project.output = static_cast<int>( project.trees.size() );
+        }
+
+        project.trees.push_back( std::move( entry ) );
+    }
+
+    return project;
+}
+
+bool FastNoiseNodeEditor::ApplyProject( moth_noised::Project&& project )
+{
+    mNodes.clear();
+    mSelectedNode = nullptr;
+
+    mNodeSeed = project.preview.seed;
+    mNodeScale = project.preview.scale;
+    mNodeGenType = static_cast<NoiseTexture::GenType>(
+        std::clamp( project.preview.genType, 0, (int)NoiseTexture::GenType_Count - 1 ) );
+
+    FastNoise::NodeData* output = nullptr;
+    float unplacedTreeOffset = 0.0f;
+
+    for( size_t treeIndex = 0; treeIndex < project.trees.size(); ++treeIndex )
+    {
+        auto& entry = project.trees[treeIndex];
+
+        // The root has to be read before the nodes are taken; releasing them
+        // empties the tree.
+        FastNoise::NodeData* root = entry.tree.GetRoot();
+        std::vector<std::unique_ptr<FastNoise::NodeData>> owned = entry.tree.ReleaseNodes();
+
+        const bool hasLayout = entry.layout.size() >= owned.size();
+
+        for( size_t i = 0; i < owned.size(); ++i )
+        {
+            FastNoise::NodeData* data = owned[i].get();
+            auto emplaced = mNodes.emplace( std::piecewise_construct, std::forward_as_tuple( data ),
+                                            std::forward_as_tuple( *this, std::move( owned[i] ) ) );
+
+            if( hasLayout )
+            {
+                ImNodes::SetNodeGridSpacePos( emplaced.first->second.nodeId,
+                                              ImVec2( entry.layout[i].x, entry.layout[i].y ) );
+            }
+        }
+
+        // A graph that arrived without positions — a bare tree exported for an
+        // engine — gets laid out rather than stacked on the origin.
+        if( !hasLayout && root )
+        {
+            const ImVec2 position( unplacedTreeOffset, 0.0f );
+            Node& rootNode = mNodes.at( root );
+            ImNodes::SetNodeGridSpacePos( rootNode.nodeId, position );
+            rootNode.AutoPositionChildNodes( position );
+            unplacedTreeOffset += 600.0f;
+        }
+
+        if( static_cast<int>( treeIndex ) == project.output )
+        {
+            output = root;
+        }
+    }
+
+    // ChangeSelectedNode only refreshes the preview when there is something to
+    // preview, so a project with no output has to clear it explicitly or the
+    // previous project's noise stays on screen.
+    if( output )
+    {
+        ChangeSelectedNode( output );
+    }
+    else
+    {
+        mSelectedNode = nullptr;
+        SetPreviewGenerator( "" );
+    }
+
+    mSettingsDirty = true;
+    return true;
+}
+
+void FastNoiseNodeEditor::NewProject()
+{
+    mNodes.clear();
+    mSelectedNode = nullptr;
+    mProjectPath.clear();
+    SetPreviewGenerator( "" );
+    SetStatus( "New project" );
+    mSettingsDirty = true;
+}
+
+bool FastNoiseNodeEditor::OpenProject( const std::filesystem::path& path )
+{
+    std::string error;
+    auto project = moth_noised::Project::Load( path, &error );
+
+    if( !project )
+    {
+        // Say why, and leave the canvas as it was: a failed open must not cost
+        // the user the graph they had.
+        SetStatus( "Could not open " + path.filename().string() + ": " + error );
+        return false;
+    }
+
+    ApplyProject( std::move( *project ) );
+    mProjectPath = path;
+    SetStatus( "Opened " + path.filename().string() );
+    return true;
+}
+
+bool FastNoiseNodeEditor::SaveProject( const std::filesystem::path& path )
+{
+    std::string error;
+
+    if( !BuildProject().Save( path, &error ) )
+    {
+        SetStatus( "Could not save " + path.filename().string() + ": " + error );
+        return false;
+    }
+
+    mProjectPath = path;
+    SetStatus( "Saved " + path.filename().string() );
+    return true;
+}
+
+void FastNoiseNodeEditor::SetStatus( std::string message )
+{
+    mProjectStatus = std::move( message );
+    Debug {} << mProjectStatus.c_str();
+}
+
+#ifndef __EMSCRIPTEN__
+namespace
+{
+    constexpr const char* kProjectExtension = "json";
+
+    /// NFD wants initialising once. Doing it on first use keeps the cost off
+    /// startup for a session that never opens a dialog.
+    void EnsureFileDialogsReady()
+    {
+        static const bool initialised = []() { return NFD_Init() == NFD_OKAY; }();
+        (void)initialised;
+    }
+
+    /// Runs a native dialog and reports the chosen path, or nullopt if the user
+    /// cancelled or the dialog failed.
+    template <typename Dialog>
+    std::optional<std::filesystem::path> RunFileDialog( Dialog&& dialog )
+    {
+        EnsureFileDialogsReady();
+
+        nfdchar_t* chosen = nullptr;
+        nfdfilteritem_t filter[1] = { { "Noise project", kProjectExtension } };
+
+        if( dialog( &chosen, filter ) != NFD_OKAY || !chosen )
+        {
+            return std::nullopt;
+        }
+
+        std::filesystem::path path( chosen );
+        NFD_FreePath( chosen );
+        return path;
+    }
+
+    std::optional<std::filesystem::path> AskForProjectToOpen()
+    {
+        return RunFileDialog( []( nfdchar_t** out, nfdfilteritem_t* filter ) {
+            return NFD_OpenDialog( out, filter, 1, nullptr );
+        } );
+    }
+
+    std::optional<std::filesystem::path> AskWhereToSave( const std::filesystem::path& current )
+    {
+        const std::string suggested = current.empty() ? std::string( "noise." ) + kProjectExtension
+                                                      : current.filename().string();
+
+        return RunFileDialog( [&]( nfdchar_t** out, nfdfilteritem_t* filter ) {
+            return NFD_SaveDialog( out, filter, 1, nullptr, suggested.c_str() );
+        } );
+    }
+}
+#endif
+
+void FastNoiseNodeEditor::DoFileMenu()
+{
+    if( !ImGui::BeginMenu( "File" ) )
+    {
+        return;
+    }
+
+    if( ImGui::MenuItem( "New" ) )
+    {
+        NewProject();
+    }
+
+#ifndef __EMSCRIPTEN__
+    if( ImGui::MenuItem( "Open..." ) )
+    {
+        if( auto path = AskForProjectToOpen() )
+        {
+            OpenProject( *path );
+        }
+    }
+
+    // Save falls back to Save As until the project has a path, so the first
+    // Save on a new project still asks where rather than failing.
+    if( ImGui::MenuItem( "Save", nullptr, false, !mNodes.empty() ) )
+    {
+        if( mProjectPath.empty() )
+        {
+            if( auto path = AskWhereToSave( mProjectPath ) )
+            {
+                SaveProject( *path );
+            }
+        }
+        else
+        {
+            SaveProject( mProjectPath );
+        }
+    }
+
+    if( ImGui::MenuItem( "Save As...", nullptr, false, !mNodes.empty() ) )
+    {
+        if( auto path = AskWhereToSave( mProjectPath ) )
+        {
+            SaveProject( *path );
+        }
+    }
+#endif
+
+    ImGui::EndMenu();
+}

@@ -136,6 +136,19 @@ CPMAddPackage(
         "IMNODES_IMGUI_TARGET_NAME MagnumIntegration::ImGui"
 )
 
+# Not upstream's: the editor gains named project files, so it needs a real
+# open/save dialog. On Linux this builds against GTK3, the same way moth_editor
+# does; NFD_PORTAL=ON is the alternative if a desktop portal is preferred.
+CPMAddPackage(
+    NAME nativefiledialog-extended
+    GITHUB_REPOSITORY btzy/nativefiledialog-extended
+    GIT_TAG v1.2.1
+    EXCLUDE_FROM_ALL YES
+    OPTIONS
+        "NFD_BUILD_TESTS OFF"
+        "NFD_INSTALL OFF"
+)
+
 CPMAddPackage(
     NAME robinhoodhashing
     GITHUB_REPOSITORY martinus/robin-hood-hashing
@@ -174,6 +187,7 @@ target_link_libraries(moth_noised PRIVATE
     ImGui::SourcesMiscCpp
     imnodes
     robin_hood
+    nfd
 )
 
 # Upstream's FastNoise target defines this PUBLIC from the FastNoise2 project

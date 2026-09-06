@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <climits>
+#include <filesystem>
 
 #include <Magnum/Magnum.h>
 #include <Magnum/GL/GL.h>
@@ -15,6 +16,7 @@
 
 #include "MeshNoisePreview.h"
 #include "NoiseTexture.h"
+#include "Project.h"
 
 namespace Magnum
 {
@@ -116,6 +118,19 @@ namespace Magnum
         void SetupSettingsHandlers();
         void OpenStandaloneNodeGraph();
 
+        // Project files. The canvas is a forest — every node with nothing
+        // feeding off it is the root of its own graph — so a project is the set
+        // of those roots plus which one is the output, rather than whichever
+        // single graph happens to be selected.
+        std::vector<FastNoise::NodeData*> FindRootNodes();
+        moth_noised::Project BuildProject();
+        bool ApplyProject( moth_noised::Project&& project );
+        void DoFileMenu();
+        void NewProject();
+        bool OpenProject( const std::filesystem::path& path );
+        bool SaveProject( const std::filesystem::path& path );
+        void SetStatus( std::string message );
+
         void CheckLinks();
         void DoHelp();
         void DoContextMenu();
@@ -134,6 +149,11 @@ namespace Magnum
         std::string mImportNodeString;
         bool mImportNodeModal = false;
         bool mSettingsDirty = false;
+
+        // Empty until the project has been saved or opened once, which is what
+        // makes Save fall back to Save As.
+        std::filesystem::path mProjectPath;
+        std::string mProjectStatus;
 
         MeshNoisePreview mMeshNoisePreview;
         NoiseTexture mNoiseTexture;

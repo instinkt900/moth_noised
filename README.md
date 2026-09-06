@@ -20,6 +20,39 @@ That format lives in `moth::noise`, a module of
 editor's only Moth dependency. Nothing here reaches for the rest of the toolkit,
 and a game reading these files does not need the editor.
 
+## Project files
+
+A project is saved as JSON. The canvas is a forest rather than a single graph —
+upstream treats every node with nothing feeding off it as a root — so a project
+holds an array of graphs and the index of the one that is the output:
+
+```json
+{
+  "format": "moth.noise.project",
+  "version": 1,
+  "output": 0,
+  "trees": [
+    {
+      "tree": { "format": "moth.noise.tree", "version": 1, "root": 0, "nodes": [ ... ] },
+      "layout": [ { "x": 0.0, "y": 0.0 } ]
+    }
+  ],
+  "preview": { "seed": 1337, "scale": 2.5, "type": 0 }
+}
+```
+
+What sits under `"tree"` is an ordinary `moth.noise.tree` document. Node
+positions live beside it in `"layout"`, parallel to the graph's node order, so
+an engine reads the graph knowing nothing about this editor and canvas
+coordinates never reach engine-side parsing.
+
+A bare `moth.noise.tree` document opens too, as a one-tree project — a graph
+exported for an engine can be reopened here without a conversion step.
+
+Selecting a node part way down a graph previews that node, but saves the whole
+graph it belongs to: which node is being previewed is transient, the graph is
+the asset.
+
 ## Building
 
 Dependencies come from two places, deliberately.
