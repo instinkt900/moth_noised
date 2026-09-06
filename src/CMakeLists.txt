@@ -154,6 +154,7 @@ configure_file("resources/resources.conf" "${CMAKE_CURRENT_BINARY_DIR}/resources
 corrade_add_resource(NodeEditor_RESOURCES "${CMAKE_CURRENT_BINARY_DIR}/resources.conf")
 
 add_executable(moth_noised
+    Project.cpp
     NodeEditorApp.cpp
     FastNoiseNodeEditor.cpp
     MeshNoisePreview.cpp
