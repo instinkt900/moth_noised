@@ -1,5 +1,9 @@
 # moth_noised
 
+[![Build Tests](https://github.com/instinkt900/moth_noised/actions/workflows/build-test.yml/badge.svg)](https://github.com/instinkt900/moth_noised/actions/workflows/build-test.yml)
+[![Release](https://github.com/instinkt900/moth_noised/actions/workflows/upload-release.yml/badge.svg)](https://github.com/instinkt900/moth_noised/actions/workflows/upload-release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A node editor for authoring noise graphs, forked from the editor that ships with
 [FastNoise2](https://github.com/Auburn/FastNoise2).
 

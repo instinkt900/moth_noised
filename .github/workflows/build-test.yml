@@ -1,0 +1,77 @@
+name: Build and Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'ipc/**'
+      - 'cmake/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'conanfile.py'
+      - 'version.txt'
+      - '.github/workflows/**'
+
+jobs:
+  build-test:
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      matrix:
+        include:
+          - os: windows
+            runs_on: windows-2022
+            configure_preset: conan-default
+          - os: linux
+            runs_on: ubuntu-latest
+            configure_preset: conan-release
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install system packages
+      if: matrix.os == 'linux'
+      run: |
+        # The UI half (Magnum, GLFW) is built from source through CPM and needs
+        # the X11, Wayland and OpenGL development headers.
+        sudo apt-get update
+        sudo apt-get install -y libgl-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev wayland-protocols
+
+    - name: Setup Conan
+      uses: conan-io/setup-conan@v1
+      with:
+        cache_packages: true
+
+    - name: Allow Conan to install missing system packages
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        echo 'tools.system.package_manager:mode=install' >> "$(conan config home)/global.conf"
+        echo 'tools.system.package_manager:sudo=True' >> "$(conan config home)/global.conf"
+
+    - name: Add private artifactory
+      shell: bash
+      run: |
+        conan remote add artifactory ${{ vars.ARTIFACTORY_URL }} --force
+        conan remote login artifactory ${{ vars.ARTIFACTORY_USER }} -p ${{ secrets.ARTIFACTORY_TOKEN }}
+
+    - name: Configure and build
+      shell: bash
+      run: |
+        # The recipe requires C++20, above every detected profile's default.
+        conan install . ${{ matrix.os == 'windows' && '-s compiler.cppstd=20' || '-s compiler.cppstd=gnu20' }} -s build_type=Release --build=missing --update
+        cmake --preset ${{ matrix.configure_preset }}
+        cmake --build --preset conan-release --config Release
+
+    - name: Build and run tests
+      shell: bash
+      working-directory: tests
+      run: |
+        # The recipe requires C++20, above every detected profile's default.
+        conan install . ${{ matrix.os == 'windows' && '-s compiler.cppstd=20' || '-s compiler.cppstd=gnu20' }} -s build_type=Release --build=missing --update
+        cmake --preset ${{ matrix.configure_preset }}
+        cmake --build --preset conan-release --config Release
+        build/Release/moth_noised_tests
