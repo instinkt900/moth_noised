@@ -2,6 +2,7 @@ from conan import ConanFile
 from conan.tools.build import check_min_cppstd
 from conan.tools.cmake import cmake_layout, CMake
 from conan.tools.files import load
+from conan.tools.system.package_manager import Apt
 
 
 class MothNoiseEditor(ConanFile):
@@ -36,6 +37,12 @@ class MothNoiseEditor(ConanFile):
         # this, moth_core's GLFW backend comes in underneath moth::noise and two
         # copies of GLFW end up in one link.
         self.options["moth_core"].enable_platform = False
+
+    def system_requirements(self):
+        # GTK3 for the file dialogs (nativefiledialog-extended, fetched through CPM).
+        if self.settings.os == "Linux":
+            apt = Apt(self)
+            apt.install(["libgtk-3-dev"])
 
     def build_requirements(self):
         # A range rather than a pin: a CI runner image moving to a newer Visual

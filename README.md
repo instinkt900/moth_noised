@@ -88,11 +88,12 @@ it. Conan's detected profiles default to lower (`gnu17` on Linux, 14 with MSVC),
 pass the standard on the command line as below, or set it in your Conan profile.
 
 On Linux, the UI half is built from source and needs the X11, Wayland and OpenGL
-development headers:
+development headers. The file dialogs need GTK3, which the recipe installs through
+`apt` when Conan is allowed to manage system packages, or install it yourself:
 
 ```sh
 sudo apt install libgl-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
-    libxi-dev libwayland-dev libxkbcommon-dev wayland-protocols
+    libxi-dev libwayland-dev libxkbcommon-dev wayland-protocols libgtk-3-dev
 ```
 
 ```sh
