@@ -104,7 +104,7 @@ TEST_CASE( "the graph a project writes is a plain noise tree", "[project]" )
 
     // What an engine reads is a moth.noise.tree document with nothing of the
     // editor's in it. Node positions live beside it, never inside.
-    CHECK( treeJson.at( "format" ) == moth::noise::kNodeTreeFormat );
+    CHECK( treeJson.at( "format" ).get<std::string>() == moth::noise::kNodeTreeFormat );
     CHECK( json.at( "trees" )[0].contains( "layout" ) );
     for( const auto& node : treeJson.at( "nodes" ) )
     {
