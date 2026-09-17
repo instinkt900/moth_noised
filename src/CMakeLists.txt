@@ -240,4 +240,23 @@ endif()
 
 install(TARGETS moth_noised RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 
+# Shared libraries the executable loads at run time on Windows: the DLLs the
+# recipe collects from Conan dependencies into MOTH_NOISED_RUNTIME_DIR (FastNoise2)
+# and moth_noised_ipc when it is built shared.
+# They are copied next to the executable after each build, so it runs from the
+# build tree, and installed beside it.
+if(WIN32 AND MOTH_NOISED_RUNTIME_DIR)
+    file(GLOB MOTH_NOISED_RUNTIME_DLLS "${MOTH_NOISED_RUNTIME_DIR}/*.dll")
+    if(MOTH_NOISED_FASTNOISE_SHARED)
+        list(APPEND MOTH_NOISED_RUNTIME_DLLS $<TARGET_FILE:moth_noised_ipc>)
+    endif()
+    if(MOTH_NOISED_RUNTIME_DLLS)
+        add_custom_command(TARGET moth_noised POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MOTH_NOISED_RUNTIME_DLLS} $<TARGET_FILE_DIR:moth_noised>
+            VERBATIM
+        )
+        install(FILES ${MOTH_NOISED_RUNTIME_DLLS} DESTINATION "${CMAKE_INSTALL_BINDIR}")
+    endif()
+endif()
+
 set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" PROPERTY VS_STARTUP_PROJECT moth_noised)

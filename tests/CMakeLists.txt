@@ -28,3 +28,17 @@ if(MSVC)
     target_compile_definitions(${PROJECT_NAME} PRIVATE _CRT_SECURE_NO_WARNINGS)
     target_compile_options(${PROJECT_NAME} PRIVATE /W3 /WX /utf-8)
 endif()
+
+# Shared libraries the executable loads at run time on Windows: the DLLs the
+# recipe collects from Conan dependencies into MOTH_NOISED_RUNTIME_DIR (FastNoise2).
+# They are copied next to the test executable after each build, so it runs from
+# the build tree.
+if(WIN32 AND MOTH_NOISED_RUNTIME_DIR)
+    file(GLOB MOTH_NOISED_TESTS_RUNTIME_DLLS "${MOTH_NOISED_RUNTIME_DIR}/*.dll")
+    if(MOTH_NOISED_TESTS_RUNTIME_DLLS)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MOTH_NOISED_TESTS_RUNTIME_DLLS} $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            VERBATIM
+        )
+    endif()
+endif()

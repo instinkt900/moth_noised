@@ -1,12 +1,14 @@
+import os
+
 from conan import ConanFile
 from conan.tools.build import check_min_cppstd
-from conan.tools.cmake import cmake_layout
+from conan.tools.cmake import cmake_layout, CMakeDeps, CMakeToolchain
+from conan.tools.files import copy
 
 
 class MothNoisedTests(ConanFile):
     name = "moth_noised_tests"
     settings = "os", "compiler", "build_type", "arch"
-    generators = "CMakeToolchain", "CMakeDeps"
 
     def validate(self):
         # C++20, the same as the editor these tests are built from.
@@ -26,3 +28,16 @@ class MothNoisedTests(ConanFile):
 
     def layout(self):
         cmake_layout(self)
+
+    def generate(self):
+        CMakeDeps(self).generate()
+        tc = CMakeToolchain(self)
+        # The DLLs of shared dependencies (FastNoise2 on Windows) are collected
+        # into one folder, which the CMake build copies next to the executable.
+        runtime_dir = os.path.join(self.generators_folder, "runtime")
+        if self.settings.os == "Windows":
+            for dep in self.dependencies.host.values():
+                for bindir in dep.cpp_info.bindirs:
+                    copy(self, "*.dll", bindir, runtime_dir, keep_path=False)
+        tc.cache_variables["MOTH_NOISED_RUNTIME_DIR"] = runtime_dir.replace("\\", "/")
+        tc.generate()

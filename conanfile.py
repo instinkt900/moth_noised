@@ -1,7 +1,9 @@
+import os
+
 from conan import ConanFile
 from conan.tools.build import check_min_cppstd
-from conan.tools.cmake import cmake_layout, CMake
-from conan.tools.files import load
+from conan.tools.cmake import cmake_layout, CMake, CMakeDeps, CMakeToolchain
+from conan.tools.files import copy, load
 from conan.tools.system.package_manager import Apt
 
 
@@ -13,7 +15,6 @@ class MothNoiseEditor(ConanFile):
     description = "A node editor for moth::noise noise graphs"
 
     settings = "os", "compiler", "build_type", "arch"
-    generators = "CMakeToolchain", "CMakeDeps"
     exports_sources = "CMakeLists.txt", "version.txt", "cmake/*", "src/*", "ipc/*"
 
     def set_version(self):
@@ -53,6 +54,23 @@ class MothNoiseEditor(ConanFile):
 
     def layout(self):
         cmake_layout(self)
+
+    def generate(self):
+        CMakeDeps(self).generate()
+        tc = CMakeToolchain(self)
+        # moth_noise builds FastNoise2 shared on Windows. The IPC library declares
+        # its functions with FastNoise2's export macro, so it has to be linked the
+        # same way FastNoise2 is.
+        tc.cache_variables["MOTH_NOISED_FASTNOISE_SHARED"] = bool(self.dependencies["fastnoise2"].options.shared)
+        # The DLLs of shared dependencies (FastNoise2 on Windows) are collected
+        # into one folder, which the CMake build copies next to the executable.
+        runtime_dir = os.path.join(self.generators_folder, "runtime")
+        if self.settings.os == "Windows":
+            for dep in self.dependencies.host.values():
+                for bindir in dep.cpp_info.bindirs:
+                    copy(self, "*.dll", bindir, runtime_dir, keep_path=False)
+        tc.cache_variables["MOTH_NOISED_RUNTIME_DIR"] = runtime_dir.replace("\\", "/")
+        tc.generate()
 
     def build(self):
         cmake = CMake(self)
