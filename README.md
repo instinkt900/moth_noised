@@ -71,22 +71,40 @@ with `enable_platform=False`, which drops core's GLFW backend and leaves the
 types. Magnum's GLFW is then the only one in the link. The recipe sets this
 itself; you do not have to remember it.
 
+`moth_noise` is published to an Artifactory remote rather than Conan Center.
+Register the remote once before installing (it is publicly readable, so no login is
+required):
+
 ```sh
-conan install . --build=missing -s build_type=Release
+conan remote add moth https://artifactory.matthewcotton.net/artifactory/api/conan/conan-local
+```
+
+C++20 is required: the editor code from upstream uses C++20, so the recipe checks for
+it. Conan's detected profiles default to lower (`gnu17` on Linux, 14 with MSVC), so
+pass the standard on the command line as below, or set it in your Conan profile.
+
+On Linux, the UI half is built from source and needs the X11, Wayland and OpenGL
+development headers:
+
+```sh
+sudo apt install libgl-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+    libxi-dev libwayland-dev libxkbcommon-dev wayland-protocols
+```
+
+```sh
+# Linux
+conan install . --build=missing -s build_type=Release -s compiler.cppstd=gnu20
 cmake --preset conan-release
+cmake --build --preset conan-release
+
+# Windows
+conan install . --build=missing -s build_type=Release -s compiler.cppstd=20
+cmake --preset conan-default
 cmake --build --preset conan-release
 ```
 
 The first configure clones the UI stack, which takes a while. Subsequent ones
 reuse it.
-
-`moth_noise` is not on a public remote yet, so until it is you need it in your
-local cache:
-
-```sh
-conan create path/to/moth_toolkit/modules/noise --build=missing \
-    -o "moth_core/*:enable_platform=False"
-```
 
 ## Layout
 

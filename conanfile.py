@@ -1,5 +1,6 @@
 from conan import ConanFile
-from conan.tools.cmake import cmake_layout, CMake, CMakeToolchain, CMakeDeps
+from conan.tools.build import check_min_cppstd
+from conan.tools.cmake import cmake_layout, CMake
 from conan.tools.files import load
 
 
@@ -11,11 +12,17 @@ class MothNoiseEditor(ConanFile):
     description = "A node editor for moth::noise noise graphs"
 
     settings = "os", "compiler", "build_type", "arch"
+    generators = "CMakeToolchain", "CMakeDeps"
     exports_sources = "CMakeLists.txt", "version.txt", "cmake/*", "src/*", "ipc/*"
 
     def set_version(self):
         if not self.version:
             self.version = load(self, "version.txt").strip()
+
+    def validate(self):
+        # C++20: the vendored upstream editor uses <bit> (std::popcount), and
+        # upstream's CMake asks for cxx_std_20.
+        check_min_cppstd(self, 20)
 
     def requirements(self):
         # Only the noise module. The editor is deliberately not a moth_toolkit
@@ -39,10 +46,6 @@ class MothNoiseEditor(ConanFile):
 
     def layout(self):
         cmake_layout(self)
-
-    def generate(self):
-        CMakeDeps(self).generate()
-        CMakeToolchain(self).generate()
 
     def build(self):
         cmake = CMake(self)

@@ -8,6 +8,7 @@ add_library(moth_noised_ipc STATIC
     NodeEditorIpc_C.cpp
     include/FastNoise/NodeEditorIpc_C.h
 )
+target_compile_features(moth_noised_ipc PUBLIC cxx_std_17)
 
 target_include_directories(moth_noised_ipc PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
