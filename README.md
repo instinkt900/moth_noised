@@ -123,3 +123,8 @@ nothing edited. Every later commit is therefore a legible diff against upstream,
 which is what makes pulling in a future upstream release by hand tractable.
 
 Upstream is MIT licensed; see `LICENSE.FastNoise2`.
+
+## License
+
+MIT. See [LICENSE](LICENSE). The code vendored from FastNoise2 keeps its upstream MIT
+notice in [LICENSE.FastNoise2](LICENSE.FastNoise2).
