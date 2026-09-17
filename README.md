@@ -1,4 +1,4 @@
-# moth_noised
+# Moth Noise Ed
 
 [![Build Tests](https://github.com/instinkt900/moth_noised/actions/workflows/build-test.yml/badge.svg)](https://github.com/instinkt900/moth_noised/actions/workflows/build-test.yml)
 [![Release](https://github.com/instinkt900/moth_noised/actions/workflows/upload-release.yml/badge.svg)](https://github.com/instinkt900/moth_noised/actions/workflows/upload-release.yml)
